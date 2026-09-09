@@ -1,0 +1,20 @@
+# Dependencies
+node_modules/
+
+# Environment variables
+.env
+.env.local
+
+# Database & uploads
+*.sqlite
+*.sqlite-journal
+server/uploads/*
+!server/uploads/.gitkeep
+
+# Build outputs
+dist/
+build/
+
+# System / IDE
+.DS_Store
+.vscode/
