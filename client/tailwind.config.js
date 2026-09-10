@@ -7,16 +7,12 @@ export default {
   theme: {
     extend: {
       colors: {
-        slate: {
-          900: '#0f172a',
-          800: '#1e293b',
-          700: '#334155',
-        },
-        brand: {
-          blue: '#3b82f6',
-          hover: '#2563eb'
-        }
-      }
+        base: '#0f172a',
+        panel: '#1e293b',
+        line: '#334155',
+        accent: '#3b82f6',
+        accentSoft: '#60a5fa',
+      },
     },
   },
   plugins: [],

@@ -1,37 +1,30 @@
-import express from 'express';
-import cors from 'cors';
-import dotenv from 'dotenv';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import db from './db.js';
+require('dotenv').config();
+const express = require('express');
+const cors = require('cors');
+const path = require('path');
 
-dotenv.config();
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const authRoutes = require('./routes/auth');
+const usersRoutes = require('./routes/users');
 
 const app = express();
-const PORT = process.env.PORT || 4000;
 
-// Middleware
-app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:5173',
-  credentials: true
-}));
+app.use(cors({ origin: process.env.CLIENT_URL || '*' }));
 app.use(express.json());
-
-// Statičko serviranje uploadanih slika
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// Health check ruta za provjeru rada servera
-app.get('/api/health', (req, res) => {
-  res.json({
-    status: 'ok',
-    message: 'QuickBid poslužitelj je aktivan!',
-    timestamp: new Date().toISOString()
-  });
+// Montiranje ruta za autentikaciju i korisnike
+app.use('/api/auth', authRoutes);
+app.use('/api/users', usersRoutes);
+
+app.get('/api/health', (req, res) => res.json({ status: 'ok', time: new Date().toISOString() }));
+
+// Centralni error handler
+app.use((err, req, res, next) => {
+  console.error(err);
+  res.status(err.status || 500).json({ error: err.message || 'Interna pogreška poslužitelja.' });
 });
 
+const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
-  console.log(`🚀 QuickBid server sluša na http://localhost:${PORT}`);
+  console.log(`QuickBid server sluša na http://localhost:${PORT}`);
 });

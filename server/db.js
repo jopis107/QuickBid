@@ -1,23 +1,17 @@
-import Database from 'better-sqlite3';
-import path from 'path';
-import { fileURLToPath } from 'url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const Database = require('better-sqlite3');
+const path = require('path');
 
 const dbPath = path.join(__dirname, 'quickbid.sqlite');
 const db = new Database(dbPath);
 
-// Uključi foreign keys
 db.pragma('foreign_keys = ON');
 
-// Kreiranje tablica ako ne postoje
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT UNIQUE NOT NULL,
     email TEXT UNIQUE NOT NULL,
-    password TEXT NOT NULL,
+    password_hash TEXT NOT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
@@ -28,10 +22,14 @@ db.exec(`
     starting_price REAL NOT NULL,
     current_price REAL NOT NULL,
     image_url TEXT,
-    end_time DATETIME NOT NULL,
-    seller_id INTEGER NOT NULL,
+    owner_id INTEGER NOT NULL,
+    winner_id INTEGER,
+    status TEXT DEFAULT 'active',
+    payment_deadline DATETIME,
+    ends_at DATETIME NOT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (seller_id) REFERENCES users(id) ON DELETE CASCADE
+    FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (winner_id) REFERENCES users(id) ON DELETE SET NULL
   );
 
   CREATE TABLE IF NOT EXISTS bids (
@@ -45,6 +43,4 @@ db.exec(`
   );
 `);
 
-console.log('Baza podataka uspješno inicijalizirana (quickbid.sqlite)');
-
-export default db;
+module.exports = db;
