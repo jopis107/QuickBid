@@ -11,7 +11,7 @@ import { useCountdown } from '../hooks/useCountdown.js';
 // Komponenta forme za unos ponude
 import BidForm from '../components/BidForm.jsx';
 
-// Osnovna adresa poslužitelja za dohvat slika (npr. http://localhost:4000)
+// Osnovna adresa poslužitelja za dohvat slika
 const API_ORIGIN = (import.meta.env.VITE_API_URL || 'http://localhost:4000/api').replace('/api', '');
 
 // Definicija vizualnih stilova i naziva za svaki status aukcije
@@ -22,7 +22,7 @@ const STATUS_LABELS = {
   failed: { label: 'Neuspjelo', className: 'bg-red-500/20 text-red-300' }
 };
 
-// Funkcija za formatiranje preostalog roka za uplatu (npr. "još 4d 18h")
+// Funkcija za formatiranje preostalog roka za uplatu
 function formatDeadline(deadline) {
   if (!deadline) return '';
   const diff = new Date(deadline).getTime() - Date.now();
@@ -35,22 +35,21 @@ function formatDeadline(deadline) {
 }
 
 export default function AuctionDetail() {
-  const { id } = useParams(); // ID predmeta iz URL-a
-  const { user } = useAuth(); // Podaci o trenutno prijavljenom korisniku
-  const { socket } = useSocket(); // Socket instanca za komunikaciju uživo
+  const { id } = useParams();
+  const { user } = useAuth();
+  const { socket } = useSocket();
 
   // Stanja komponente
   const [item, setItem] = useState(null);
   const [bids, setBids] = useState([]);
   const [rankedBidders, setRankedBidders] = useState([]);
   const [error, setError] = useState('');
-  const [closing, setClosing] = useState(false);
   const [restarting, setRestartingId] = useState(false);
   const [proofFile, setProofFile] = useState(null);
   const [proofSubmitting, setProofSubmitting] = useState(false);
   const [proofError, setProofError] = useState('');
 
-  // Dohvat svih podataka o aukciji, ponudama i listi rangiranih kupaca
+  // Dohvat svih podataka o aukciji, ponudama i rangiranim kupcima
   function loadItem() {
     return api.get(`/items/${id}`).then(({ data }) => {
       setItem(data.item);
@@ -67,19 +66,17 @@ export default function AuctionDetail() {
     };
   }, [id]);
 
-  // Spajanje na sobu aukcije i slušanje događaja uživo
+  // Slušanje promjena uživo preko socketa
   useEffect(() => {
     if (!socket) return;
     socket.emit('item:join', id);
 
-    // Osvježavanje cijene i liste ponuda u stvarnom vremenu
     function handleBidUpdate(payload) {
       if (String(payload.itemId) !== String(id)) return;
       setItem((prev) => (prev ? { ...prev, current_price: payload.current_price } : prev));
       setBids(payload.bids);
     }
 
-    // Osvježavanje kada aukcija promijeni status (npr. završi ili pređe na idući rang uplate)
     function handleStatusChange(payload) {
       if (String(payload.itemId) !== String(id)) return;
       setItem(payload.item);
@@ -108,21 +105,7 @@ export default function AuctionDetail() {
     setBids(data.bids);
   }
 
-  // Ručno zatvaranje aukcije (samo za vlasnika)
-  async function handleEndAuction() {
-    setClosing(true);
-    setError('');
-    try {
-      const { data } = await api.post(`/items/${id}/end`);
-      setItem(data.item);
-    } catch (err) {
-      setError(err?.response?.data?.error || 'Greška pri zatvaranju aukcije.');
-    } finally {
-      setClosing(false);
-    }
-  }
-
-  // Ponovno pokretanje aukcije ako nitko nije platio
+  // Ponovno pokretanje aukcije ako je neuspjela
   async function handleRestart() {
     setRestartingId(true);
     setError('');
@@ -137,7 +120,7 @@ export default function AuctionDetail() {
     }
   }
 
-  // Slanje uplatnice (slika ili PDF) od strane pobjednika
+  // Slanje potvrde o uplati
   async function handleProofSubmit(e) {
     e.preventDefault();
     setProofError('');
@@ -161,7 +144,7 @@ export default function AuctionDetail() {
     }
   }
 
-  // Preuzimanje PDF računa izravno preko preglednika
+  // Preuzimanje PDF računa
   async function downloadReceipt() {
     const response = await api.get(`/items/${id}/receipt`, { responseType: 'blob' });
     const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }));
@@ -176,7 +159,6 @@ export default function AuctionDetail() {
 
   if (!item) return <div className="mx-auto max-w-4xl px-6 py-10 text-slate-400">Učitavanje…</div>;
 
-  // Izračunata prava i uloge korisnika
   const isOwner = user && user.id === item.owner_id;
   const isCurrentPayer = user && item.status === 'awaiting_payment' && item.winner_id === user.id;
   const canDownloadReceipt =
@@ -204,7 +186,7 @@ export default function AuctionDetail() {
           )}
         </div>
 
-        {/* Desni stupac s detaljima i akcijama */}
+        {/* Informacije i kontrole aukcije */}
         <div className="flex flex-col gap-4">
           <div>
             <h1 className="font-display text-2xl font-semibold text-white">{item.title}</h1>
@@ -227,7 +209,7 @@ export default function AuctionDetail() {
               {item.current_price.toFixed(2)} {item.currency}
             </p>
 
-            {/* Odbrojavanje vremena dok je aktivna */}
+            {/* Prikaz odbrojavanja vremena */}
             {item.status === 'active' && (
               <div className="mt-3 rounded-lg border border-line bg-base px-4 py-3">
                 <p className="text-xs uppercase tracking-wide text-slate-500">
@@ -243,7 +225,7 @@ export default function AuctionDetail() {
               </div>
             )}
 
-            {/* Forma za ponudu */}
+            {/* Obrazac za unos ponude */}
             {item.status === 'active' && !isOwner && user && (
               <div className="mt-4">
                 <BidForm
@@ -263,16 +245,12 @@ export default function AuctionDetail() {
               <p className="mt-4 text-sm text-slate-400">Prijavite se za licitiranje.</p>
             )}
             {item.status === 'active' && isOwner && (
-              <button
-                onClick={handleEndAuction}
-                disabled={closing}
-                className="mt-4 w-full rounded-md border border-line px-4 py-2 text-sm text-slate-200 transition hover:border-accent hover:text-white disabled:opacity-50"
-              >
-                {closing ? 'Zatvaranje…' : 'Zatvori aukciju'}
-              </button>
+              <p className="mt-4 text-xs italic text-slate-400">
+                Vi ste vlasnik ove aukcije. Aukcija će automatski završiti kada istekne zadano vrijeme.
+              </p>
             )}
 
-            {/* SEKCIJA ZA UPLATU: Prikazuje se kad aukcija čeka uplatu */}
+            {/* Sekcija za uplatu */}
             {item.status === 'awaiting_payment' && (
               <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4">
                 {isCurrentPayer ? (
@@ -318,7 +296,7 @@ export default function AuctionDetail() {
               </div>
             )}
 
-            {/* SEKCIJA ZA ZAVRŠENO: Prikazuje se kad je uplatnica poslana i potvrđena */}
+            {/* Sekcija kada je aukcija uspješno završena */}
             {item.status === 'completed' && (
               <div className="mt-4 rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-4">
                 <p className="text-sm text-emerald-200">
@@ -335,7 +313,7 @@ export default function AuctionDetail() {
               </div>
             )}
 
-            {/* SEKCIJA ZA NEUSPJELE AUKCIJE */}
+            {/* Sekcija za neuspjelu aukciju */}
             {item.status === 'failed' && (
               <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/5 p-4">
                 <p className="text-sm text-red-300">
@@ -356,7 +334,7 @@ export default function AuctionDetail() {
             {error && <p className="mt-2 text-sm text-red-400">{error}</p>}
           </div>
 
-          {/* Lista ponuđača po redoslijedu prava na uplatu */}
+          {/* Redoslijed rangiranih ponuđača */}
           {rankedBidders.length > 0 && (item.status === 'awaiting_payment' || item.status === 'failed') && (
             <div className="rounded-xl border border-line bg-panel p-4">
               <h3 className="text-sm font-medium text-slate-300">Lista ponuda (redoslijed plaćanja)</h3>

@@ -5,9 +5,9 @@ const uploadProof = require('../utils/uploadProof');
 const { requireAuth, optionalAuth } = require('../middleware/auth');
 const { streamReceipt } = require('../utils/receipt');
 
-// Rok za uplatu, 7 dana u milisekundama
+// Rok za uplatu u milisekundama (default 5 dana)
 const PAYMENT_WINDOW_MS =
-  (parseFloat(process.env.PAYMENT_WINDOW_DAYS) || 7) * 24 * 60 * 60 * 1000;
+  (parseFloat(process.env.PAYMENT_WINDOW_DAYS) || 5) * 24 * 60 * 60 * 1000;
 const MAX_PAYMENT_RANK = 3;
 
 module.exports = function itemsRouter(io) {
@@ -15,56 +15,68 @@ module.exports = function itemsRouter(io) {
 
   const insertItem = db.prepare(`
     INSERT INTO items (title, description, starting_price, current_price, currency, image_path, owner_id, ends_at, duration_minutes)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
   const getItem = db.prepare(`
     SELECT items.*, u.username AS owner_username
     FROM items JOIN users u ON u.id = items.owner_id
-    WHERE items.id = ?`);
+    WHERE items.id = ?
+  `);
   const listItems = db.prepare(`
     SELECT items.*, u.username AS owner_username
     FROM items JOIN users u ON u.id = items.owner_id
-    ORDER BY items.created_at DESC`);
+    ORDER BY items.created_at DESC
+  `);
   const updateItemStmt = db.prepare(`
     UPDATE items SET title = ?, description = ?, currency = ?, image_path = ?
-    WHERE id = ? AND owner_id = ?`);
+    WHERE id = ? AND owner_id = ?
+  `);
   const deleteItemStmt = db.prepare('DELETE FROM items WHERE id = ? AND owner_id = ?');
   const insertBid = db.prepare(
-    'INSERT INTO bids (item_id, user_id, amount) VALUES (?, ?, ?)');
+    'INSERT INTO bids (item_id, user_id, amount) VALUES (?, ?, ?)'
+  );
   const bumpPrice = db.prepare('UPDATE items SET current_price = ? WHERE id = ?');
   const getBidsForItem = db.prepare(`
     SELECT bids.*, u.username FROM bids
     JOIN users u ON u.id = bids.user_id
-    WHERE item_id = ? ORDER BY bids.created_at DESC LIMIT 25`);
+    WHERE item_id = ? ORDER BY bids.created_at DESC LIMIT 25
+  `);
   const getRankedBidders = db.prepare(`
     SELECT bids.user_id, MAX(bids.amount) AS amount, u.username, u.email
     FROM bids JOIN users u ON u.id = bids.user_id
     WHERE bids.item_id = ?
     GROUP BY bids.user_id
-    ORDER BY amount DESC`);
+    ORDER BY amount DESC
+  `);
   const getUserById = db.prepare('SELECT id, username, email FROM users WHERE id = ?');
   const getActiveItems = db.prepare("SELECT * FROM items WHERE status = 'active'");
   const getAwaitingPaymentItems = db.prepare(
-    "SELECT * FROM items WHERE status = 'awaiting_payment'");
+    "SELECT * FROM items WHERE status = 'awaiting_payment'"
+  );
 
   const setAwaitingPayment = db.prepare(`
     UPDATE items
     SET status = 'awaiting_payment', winner_id = ?, payment_rank = ?, payment_deadline = ?, payment_proof_path = NULL
-    WHERE id = ?`);
+    WHERE id = ?
+  `);
   const setFailed = db.prepare(`
-    UPDATE items SET status = 'failed', payment_deadline = NULL WHERE id = ?`);
+    UPDATE items SET status = 'failed', payment_deadline = NULL WHERE id = ?
+  `);
   const setCompleted = db.prepare(`
-    UPDATE items SET status = 'completed', payment_proof_path = ? WHERE id = ?`);
+    UPDATE items SET status = 'completed', payment_proof_path = ? WHERE id = ?
+  `);
   const restartItem = db.prepare(`
     UPDATE items
     SET status = 'active', current_price = starting_price, winner_id = NULL,
         payment_rank = NULL, payment_deadline = NULL, payment_proof_path = NULL,
         ends_at = ?, duration_minutes = ?
-    WHERE id = ?`);
+    WHERE id = ?
+  `);
   const deleteBidsForItem = db.prepare('DELETE FROM bids WHERE item_id = ?');
   const insertNotification = db.prepare(
-    'INSERT INTO notifications (user_id, item_id, type, message) VALUES (?, ?, ?, ?)');
+    'INSERT INTO notifications (user_id, item_id, type, message) VALUES (?, ?, ?, ?)'
+  );
 
-  // Slanje notifikacije u bazu i preko socketa uživo korisniku
   function notify(userId, itemId, type, message) {
     insertNotification.run(userId, itemId, type, message);
     io.to(`user_${userId}`).emit('notification:new', { itemId, type, message });
@@ -76,7 +88,6 @@ module.exports = function itemsRouter(io) {
     return updatedItem;
   }
 
-  // Dodjeljuje priliku za uplatu sljedećem rangiranom ponuditelju
   function assignPaymentRank(itemId, rank, rankedBidders) {
     const bidder = rankedBidders[rank - 1];
     const deadline = new Date(Date.now() + PAYMENT_WINDOW_MS).toISOString();
@@ -91,7 +102,6 @@ module.exports = function itemsRouter(io) {
     return broadcastStatusChange(itemId);
   }
 
-  // Pokreće proces naplate nakon isteka aukcije
   function beginPaymentCascade(itemId) {
     const ranked = getRankedBidders.all(itemId);
     if (ranked.length === 0) {
@@ -108,7 +118,6 @@ module.exports = function itemsRouter(io) {
     return assignPaymentRank(itemId, 1, ranked);
   }
 
-  // Prebacuje pravo kupnje na idućeg ponuditelja ako trenutni propusti rok
   function advanceOrFailCascade(item) {
     const ranked = getRankedBidders.all(item.id);
     const nextRank = item.payment_rank + 1;
@@ -125,7 +134,6 @@ module.exports = function itemsRouter(io) {
     return broadcastStatusChange(item.id);
   }
 
-  // Pozadinski čistač isteklih aukcija
   function closeExpiredAuctions() {
     const now = Date.now();
     const expired = getActiveItems.all().filter((item) => new Date(item.ends_at).getTime() <= now);
@@ -135,7 +143,6 @@ module.exports = function itemsRouter(io) {
     return expired.length;
   }
 
-  // Pozadinski čistač isteklih rokova za uplatu
   function sweepPaymentDeadlines() {
     const now = Date.now();
     const awaiting = getAwaitingPaymentItems
@@ -147,13 +154,13 @@ module.exports = function itemsRouter(io) {
     return awaiting.length;
   }
 
-  // GET /api/items - popis predmeta
+  // GET /api/items
   router.get('/', (req, res) => {
     const items = listItems.all();
     res.json({ items });
   });
 
-  // GET /api/items/:id - detalji predmeta
+  // GET /api/items/:id
   router.get('/:id', (req, res) => {
     const item = getItem.get(req.params.id);
     if (!item) return res.status(404).json({ error: 'Aukcija nije pronađena.' });
@@ -162,7 +169,7 @@ module.exports = function itemsRouter(io) {
     res.json({ item, bids, rankedBidders });
   });
 
-  // POST /api/items - objava novog predmeta
+  // POST /api/items
   router.post('/', requireAuth, upload.single('image'), (req, res) => {
     const { title, description, starting_price, currency, duration_minutes } = req.body;
     if (!title || !description || !starting_price) {
@@ -191,7 +198,7 @@ module.exports = function itemsRouter(io) {
     res.status(201).json({ item });
   });
 
-  // PUT /api/items/:id - izmjena predmeta
+  // PUT /api/items/:id
   router.put('/:id', requireAuth, upload.single('image'), (req, res) => {
     const existing = getItem.get(req.params.id);
     if (!existing) return res.status(404).json({ error: 'Aukcija nije pronađena.' });
@@ -207,7 +214,7 @@ module.exports = function itemsRouter(io) {
     res.json({ item: getItem.get(req.params.id) });
   });
 
-  // DELETE /api/items/:id - brisanje predmeta
+  // DELETE /api/items/:id
   router.delete('/:id', requireAuth, (req, res) => {
     const existing = getItem.get(req.params.id);
     if (!existing) return res.status(404).json({ error: 'Aukcija nije pronađena.' });
@@ -218,7 +225,7 @@ module.exports = function itemsRouter(io) {
     res.json({ message: 'Aukcija je obrisana.' });
   });
 
-  // POST /api/items/:id/bid - licitiranje
+  // POST /api/items/:id/bid
   router.post('/:id/bid', requireAuth, (req, res) => {
     const item = getItem.get(req.params.id);
     if (!item) return res.status(404).json({ error: 'Aukcija nije pronađena.' });
@@ -253,21 +260,7 @@ module.exports = function itemsRouter(io) {
     res.status(201).json({ item: updatedItem, bids });
   });
 
-  // POST /api/items/:id/end - ručno zatvaranje aukcije
-  router.post('/:id/end', requireAuth, (req, res) => {
-    const item = getItem.get(req.params.id);
-    if (!item) return res.status(404).json({ error: 'Aukcija nije pronađena.' });
-    if (item.owner_id !== req.user.id) {
-      return res.status(403).json({ error: 'Samo vlasnik može zatvoriti aukciju.' });
-    }
-    if (item.status !== 'active') {
-      return res.status(400).json({ error: 'Aukcija je već završena.' });
-    }
-    const updatedItem = beginPaymentCascade(item.id);
-    res.json({ item: updatedItem });
-  });
-
-  // POST /api/items/:id/payment-proof - slanje potvrde plaćanja
+  // POST /api/items/:id/payment-proof
   router.post('/:id/payment-proof', requireAuth, uploadProof.single('proof'), (req, res) => {
     const item = getItem.get(req.params.id);
     if (!item) return res.status(404).json({ error: 'Aukcija nije pronađena.' });
@@ -296,7 +289,7 @@ module.exports = function itemsRouter(io) {
     res.json({ item: updatedItem });
   });
 
-  // POST /api/items/:id/restart - ponovno pokretanje neuspjele aukcije
+  // POST /api/items/:id/restart
   router.post('/:id/restart', requireAuth, (req, res) => {
     const item = getItem.get(req.params.id);
     if (!item) return res.status(404).json({ error: 'Aukcija nije pronađena.' });
@@ -314,7 +307,7 @@ module.exports = function itemsRouter(io) {
     res.json({ item: updatedItem });
   });
 
-  // GET /api/items/:id/receipt - preuzimanje PDF računa
+  // GET /api/items/:id/receipt
   router.get('/:id/receipt', requireAuth, (req, res) => {
     const item = getItem.get(req.params.id);
     if (!item) return res.status(404).json({ error: 'Aukcija nije pronađena.' });
@@ -331,7 +324,7 @@ module.exports = function itemsRouter(io) {
     });
   });
 
-  // GET /api/items/currency/convert - tečaj
+  // GET /api/items/currency/convert
   router.get('/currency/convert', optionalAuth, async (req, res) => {
     const { amount = 1, from = 'EUR', to = 'USD' } = req.query;
     try {
