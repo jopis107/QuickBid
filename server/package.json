@@ -1,25 +1,22 @@
 {
   "name": "quickbid-server",
   "version": "1.0.0",
-  "type": "commonjs",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js"
+    "dev": "nodemon --ignore quickbid.sqlite* server.js"
   },
   "dependencies": {
-    "bcryptjs": "^3.0.3",
+    "bcryptjs": "^2.4.3",
     "better-sqlite3": "^11.8.1",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
-    "jsonwebtoken": "^9.0.3",
-    "multer": "^2.3.0",
-    "socket.io": "^4.8.3"
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^1.4.5-lts.1",
+    "pdfkit": "^0.15.0",
+    "socket.io": "^4.8.1"
   },
   "devDependencies": {
-    "nodemon": "^3.1.14"
-  },
-  "allowScripts": {
-    "socket.io@4.8.3": true
+    "nodemon": "^3.1.9"
   }
 }

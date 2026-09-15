@@ -1,4 +1,3 @@
-// Učitavanje varijabli okruženja
 require('dotenv').config();
 const express = require('express');
 const http = require('http');
@@ -6,39 +5,31 @@ const cors = require('cors');
 const path = require('path');
 const { Server } = require('socket.io');
 
-// Uvoz ruta i socket handlera
 const authRoutes = require('./routes/auth');
 const usersRoutes = require('./routes/users');
 const itemsRoutesFactory = require('./routes/items');
+const notificationsRoutes = require('./routes/notifications');
 const registerSocketHandlers = require('./sockets/index');
 
 const app = express();
-// Kreiramo HTTP server koji omata Express aplikaciju
 const server = http.createServer(app);
-
-// Inicijalizacija Socket.io poslužitelja s CORS postavkama
 const io = new Server(server, {
   cors: { origin: process.env.CLIENT_URL || '*', methods: ['GET', 'POST', 'PUT', 'DELETE'] }
 });
 
-// Osnovni middleware
 app.use(cors({ origin: process.env.CLIENT_URL || '*' }));
 app.use(express.json());
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// Prosljeđujemo Socket.io instancu u rute za predmete
 const itemsRouter = itemsRoutesFactory(io);
 
-// Montiranje ruta
+// Montiranje svih API ruta
 app.use('/api/auth', authRoutes);
 app.use('/api/users', usersRoutes);
 app.use('/api/items', itemsRouter);
+app.use('/api/notifications', notificationsRoutes);
 
-// Health check
 app.get('/api/health', (req, res) => res.json({ status: 'ok', time: new Date().toISOString() }));
-
-// Registracija websocket osluškivača soba
-registerSocketHandlers(io);
 
 // Centralni error handler
 app.use((err, req, res, next) => {
@@ -46,8 +37,39 @@ app.use((err, req, res, next) => {
   res.status(err.status || 500).json({ error: err.message || 'Interna pogreška poslužitelja.' });
 });
 
+registerSocketHandlers(io);
+
 const PORT = process.env.PORT || 4000;
-// Slušamo na HTTP serveru (ne više na app) kako bi i Express i WebSockets radili na istom portu
 server.listen(PORT, () => {
   console.log(`QuickBid server sluša na http://localhost:${PORT}`);
+
+  // Pozadinski posao za provjeru isteklih aukcija i rokova plaćanja
+  function runBackgroundSweep() {
+    try {
+      const closedCount = itemsRouter.closeExpiredAuctions();
+      if (closedCount > 0) {
+        console.log(`Pokrenut ciklus plaćanja za isteklih aukcija: ${closedCount}`);
+      }
+      const advancedCount = itemsRouter.sweepPaymentDeadlines();
+      if (advancedCount > 0) {
+        console.log(`Obrađeno isteklih rokova za uplatu: ${advancedCount}`);
+      }
+    } catch (err) {
+      console.error('Greška pri pozadinskoj obradi aukcija:', err);
+    }
+  }
+
+  function gracefulShutdown() {
+    try {
+      db.close();
+    } catch (e) {}
+    process.exit(0);
+  }
+
+  process.on('SIGINT', gracefulShutdown);
+  process.on('SIGTERM', gracefulShutdown);
+  process.on('SIGUSR2', gracefulShutdown); // Signal koji nodemon šalje kod restarta
+
+  runBackgroundSweep();
+  setInterval(runBackgroundSweep, 7000);
 });

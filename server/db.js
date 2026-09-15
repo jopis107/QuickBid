@@ -6,7 +6,7 @@ const path = require('path');
 const dbPath = path.join(__dirname, 'quickbid.sqlite');
 const db = new Database(dbPath);
 
-// Uključivanje prisilne provjere stranih ključeva (referencijalni integritet)
+// Uključivanje prisilne provjere stranih ključeva
 db.pragma('foreign_keys = ON');
 
 // Kreiranje relacijskih tablica ako već ne postoje
@@ -51,6 +51,19 @@ db.exec(`
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  -- Tablica korisničkih obavijesti
+  CREATE TABLE IF NOT EXISTS notifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    item_id INTEGER,
+    type TEXT NOT NULL,
+    message TEXT NOT NULL,
+    is_read INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE
   );
 `);
 
